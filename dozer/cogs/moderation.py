@@ -143,7 +143,7 @@ class Moderation(Cog):
             if orig_channel is not None:
                 await orig_channel.send("Please configure modlog channel to enable modlog functionality")
 
-    async def perm_override(self, member: discord.Member, **overwrites):
+    async def perm_override(self, member: discord.Member, exclude_readonly = False, **overwrites):
         """Applies the given overrides to the given member in their guild."""
         logger.debug(f"Applying overrides to {member} ({member.id})")
         overwrite_count = 0
@@ -152,6 +152,20 @@ class Moderation(Cog):
         # For some reason guild.me is returning None only sometimes, so this is a workaround to get perm_overrides working
         me = await guild.fetch_member(self.bot.user.id)
         for channel in channels:
+            if exclude_readonly:
+                if isinstance(channel, discord.CategoryChannel):
+                    #Skip overriding categories themselves. I am not convinced that there is a legitimate case that the category itself needs to be overridden. 
+                    #All the voice, forum & text channels will also be overridden individually, and overriding categories can only cause conflicts when trying to exclude channels from being hidden in a deafen.
+                    logger.debug(f"Skipping category override {channel} ({channel.id})")
+                    continue
+                else:
+                    if channel.id in self.bot.config['deafen_excluded_channels_and_categories']:
+                        logger.debug(f"Skipping {channel} ({channel.id}) override for {member} ({member.id}) because the channel is directly excluded from deafen")
+                        continue
+                    if channel.category_id in self.bot.config['deafen_excluded_channels_and_categories']:
+                        logger.debug (f"Skipping {channel} ({channel.id}) override for {member} ({member.id}) because the channel is in an excluded category")
+                        continue
+                logger.debug(f"Overriding on {channel} ({channel.id}) for {member} ({member.id})")
             overwrite = channel.overwrites_for(member)
             if channel.permissions_for(me).manage_roles:
                 overwrite.update(**overwrites)
@@ -403,7 +417,7 @@ class Moderation(Cog):
         else:
             user = Deafen(member_id=member.id, guild_id=member.guild.id, self_inflicted=self_inflicted)
             await user.update_or_add()
-            await self.perm_override(member, read_messages=False)
+            await self.perm_override(member, True, read_messages=False)
 
             if self_inflicted and seconds == 0:
                 seconds = 30  # prevent lockout in case of bad argument
